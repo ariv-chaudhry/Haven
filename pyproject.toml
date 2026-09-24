@@ -12,6 +12,9 @@ authors = [
 ]
 dependencies = [
     "pydantic>=2.7",
+    "boto3[crt]",
+    "strands-agents",
+    "mcp",
 ]
 
 [project.optional-dependencies]

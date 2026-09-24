@@ -137,19 +137,26 @@ def _rejection_reason(
 
     if candidate.required_device_id is not None:
         device = devices_by_id.get(candidate.required_device_id)
+
         if device is None:
             return "required device is not present in household context"
+
         if not device.is_available:
             return "required device is unavailable"
+
         missing = [
             capability
             for capability in candidate.required_capabilities
             if capability not in device.capabilities
         ]
+
         if missing:
             return "required device is missing a needed capability"
-        return None
 
+        if candidate.room_id is not None and device.room_id != candidate.room_id:
+            return "required device is not in the required room"
+
+    return None
     for capability in candidate.required_capabilities:
         if not context_has_capability(context, capability):
             return "required capability is not available"
