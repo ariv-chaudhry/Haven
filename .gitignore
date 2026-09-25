@@ -1,13 +1,54 @@
-.venv/
-venv/
+# .gitignore
+# Haven Repository
+
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+.eggs/
+.venv/
+venv/
+env/
 .pytest_cache/
+.mypy_cache/
 .ruff_cache/
+htmlcov/
 .coverage
+.coverage.*
 dist/
 build/
+
+# Environment / secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+
+# Node / dashboard
+node_modules/
+apps/dashboard/dist/
+apps/dashboard/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# AWS
+.aws-sam/
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local simulator / dev data overrides
+simulator/**/data/*.local.json

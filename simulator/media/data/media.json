@@ -1,0 +1,37 @@
+[
+  {
+    "media_id": "media-interstellar",
+    "title": "Interstellar",
+    "genres": ["sci-fi", "drama"],
+    "duration_minutes": 169,
+    "rating": "PG-13"
+  },
+  {
+    "media_id": "media-the-martian",
+    "title": "The Martian",
+    "genres": ["sci-fi", "comedy"],
+    "duration_minutes": 144,
+    "rating": "PG-13"
+  },
+  {
+    "media_id": "media-paddington-2",
+    "title": "Paddington 2",
+    "genres": ["comedy", "animation"],
+    "duration_minutes": 103,
+    "rating": "PG"
+  },
+  {
+    "media_id": "media-arrival",
+    "title": "Arrival",
+    "genres": ["sci-fi", "drama"],
+    "duration_minutes": 116,
+    "rating": "PG-13"
+  },
+  {
+    "media_id": "media-hunt-for-wilderpeople",
+    "title": "Hunt for the Wilderpeople",
+    "genres": ["comedy"],
+    "duration_minutes": 101,
+    "rating": "PG-13"
+  }
+]

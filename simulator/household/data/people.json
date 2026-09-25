@@ -1,0 +1,27 @@
+[
+  {
+    "person_id": "person-alex",
+    "name": "Alex",
+    "presence": "home",
+    "preferences": {
+      "preferred_genres": ["sci-fi", "drama"]
+    }
+  },
+  {
+    "person_id": "person-sam",
+    "name": "Sam",
+    "presence": "home",
+    "preferences": {
+      "preferred_genres": ["comedy"],
+      "avoid_genres": ["horror"]
+    }
+  },
+  {
+    "person_id": "person-jamie",
+    "name": "Jamie",
+    "presence": "away",
+    "preferences": {
+      "preferred_genres": ["animation"]
+    }
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "household_id": "household-001",
+  "name": "The Rivera Household",
+  "timezone": "America/New_York",
+  "preferences": {
+    "media": {
+      "preferred_genres": ["sci-fi", "comedy"],
+      "avoid_genres": ["horror"]
+    },
+    "movie_night": {
+      "typical_day": "friday",
+      "typical_start_time": "19:30"
+    }
+  }
+}

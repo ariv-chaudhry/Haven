@@ -1,0 +1,30 @@
+[
+  {
+    "room_id": "room-living-room",
+    "name": "Living Room",
+    "occupied": false,
+    "current_activity": null,
+    "device_ids": ["device-tv-living-room", "device-lights-living-room"]
+  },
+  {
+    "room_id": "room-kitchen",
+    "name": "Kitchen",
+    "occupied": false,
+    "current_activity": null,
+    "device_ids": ["device-lights-kitchen"]
+  },
+  {
+    "room_id": "room-bedroom-1",
+    "name": "Primary Bedroom",
+    "occupied": false,
+    "current_activity": null,
+    "device_ids": ["device-lights-bedroom-1"]
+  },
+  {
+    "room_id": "room-entry",
+    "name": "Front Entry",
+    "occupied": false,
+    "current_activity": null,
+    "device_ids": ["device-lock-front-door", "device-security-system"]
+  }
+]

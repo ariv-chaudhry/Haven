@@ -1,0 +1,66 @@
+[
+  {
+    "device_id": "device-tv-living-room",
+    "name": "Living Room TV",
+    "device_type": "tv",
+    "room_id": "room-living-room",
+    "online": true,
+    "state": {
+      "power": "off",
+      "current_media_id": null
+    }
+  },
+  {
+    "device_id": "device-lights-living-room",
+    "name": "Living Room Lights",
+    "device_type": "light",
+    "room_id": "room-living-room",
+    "online": true,
+    "state": {
+      "power": "on",
+      "brightness": 80
+    }
+  },
+  {
+    "device_id": "device-lights-kitchen",
+    "name": "Kitchen Lights",
+    "device_type": "light",
+    "room_id": "room-kitchen",
+    "online": true,
+    "state": {
+      "power": "on",
+      "brightness": 100
+    }
+  },
+  {
+    "device_id": "device-lights-bedroom-1",
+    "name": "Primary Bedroom Lights",
+    "device_type": "light",
+    "room_id": "room-bedroom-1",
+    "online": true,
+    "state": {
+      "power": "off",
+      "brightness": 0
+    }
+  },
+  {
+    "device_id": "device-lock-front-door",
+    "name": "Front Door Lock",
+    "device_type": "lock",
+    "room_id": "room-entry",
+    "online": true,
+    "state": {
+      "locked": false
+    }
+  },
+  {
+    "device_id": "device-security-system",
+    "name": "Home Security System",
+    "device_type": "security_system",
+    "room_id": "room-entry",
+    "online": true,
+    "state": {
+      "armed": false
+    }
+  }
+]
