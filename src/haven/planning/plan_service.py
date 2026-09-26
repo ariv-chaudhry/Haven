@@ -30,13 +30,19 @@ def create_household_plan(
 ) -> Plan:
     """Produce a policy-validated proposed plan for a household goal.
 
+    The reasoning backend comes from ``config.planner_backend`` (default:
+    ``HAVEN_PLANNER_BACKEND``, falling back to ``mock``).
+
     Raises `ValueError` when input is invalid, the planner cannot produce
     steps, the plan exceeds configured size, or policy validation fails.
+    Bedrock provider failures propagate unchanged; there is no silent
+    fallback to the mock reasoner.
     """
 
     settings = config or get_config()
+    logger.info("Planning with backend=%s", settings.planner_backend)
 
-    plan = create_plan(goal, context)
+    plan = create_plan(goal, context, backend=settings.planner_backend)
 
     if len(plan.steps) > settings.max_plan_steps:
         raise ValueError(f"plan has {len(plan.steps)} steps; limit is {settings.max_plan_steps}")

@@ -1,12 +1,20 @@
 """Haven planner: goal + resolved context -> structured proposed Plan.
 
-Public contract (stable across Phase 1 mock and Phase 2 Bedrock/Strands):
+Public contract (stable across the mock and Bedrock/Strands backends):
 
     create_plan(goal: str, context: HouseholdContext) -> Plan
 
-The planner does not resolve context, execute devices, verify effects,
-call Alexa, or access AWS. Only the private reasoning function changes
-when a model-backed planner is introduced.
+Pipeline:
+
+    generate_candidates      deterministic, from context only
+        -> apply_constraints deterministic filtering
+        -> _reason           mock reasoner OR Strands Agent -> Bedrock
+        -> assemble_plan     trusted PlanSteps, policy-normalised
+
+The reasoner may only select and order among accepted candidates; it never
+invents actions, devices, rooms, or risk classes. The planner does not
+resolve context, execute devices, verify effects, or call Alexa. AWS
+libraries are imported only when the Bedrock backend is selected.
 """
 
 from __future__ import annotations
@@ -22,6 +30,12 @@ from haven.agents.policies import (
     requires_confirmation,
 )
 from haven.agents.prompts import PLANNER_SYSTEM_PROMPT, build_planning_prompt
+from haven.config import (
+    BEDROCK_PLANNER_BACKEND,
+    MOCK_PLANNER_BACKEND,
+    get_config,
+    normalize_backend,
+)
 from haven.models.context import DeviceCapability, HouseholdContext
 from haven.models.plan import ActionRisk, Plan, PlanStep
 from haven.planning.constraints import (
@@ -36,16 +50,30 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 Reasoner = Callable[[str, HouseholdContext, Sequence[ActionCandidate]], ReasonedPlan]
-"""Signature a Phase 2 model-backed reasoner must satisfy."""
+"""Signature every reasoning backend satisfies (mock and Bedrock)."""
 
 _MOVIE_NIGHT_KEYWORDS = ("movie", "film", "cinema")
 
 
-def create_plan(goal: str, context: HouseholdContext) -> Plan:
+def create_plan(
+    goal: str,
+    context: HouseholdContext,
+    *,
+    backend: str | None = None,
+    reasoner: Reasoner | None = None,
+) -> Plan:
     """Create a structured proposed plan for `goal` using resolved `context`.
 
-    Raises `ValueError` for an empty goal, a missing/invalid context, or when
-    no valid plan step can be produced without clarification.
+    ``backend`` overrides ``HAVEN_PLANNER_BACKEND`` ("mock" or "bedrock").
+    ``reasoner`` is a testing/DI hook that bypasses backend selection.
+    Callers such as Person B's executor/MCP code use only the two positional
+    arguments.
+
+    Raises `ValueError` for an empty goal, a missing/invalid context, an
+    unsupported backend, or when no valid plan step can be produced without
+    clarification. Bedrock provider failures propagate as
+    `haven.agents.bedrock_reasoner.ModelInvocationError`; they are never
+    masked by a silent fallback to the mock reasoner.
     """
 
     normalized_goal = _validate_goal(goal)
@@ -54,7 +82,13 @@ def create_plan(goal: str, context: HouseholdContext) -> Plan:
     candidates = generate_candidates(normalized_goal, context)
     constrained = apply_constraints(normalized_goal, context, candidates)
 
-    reasoned = _reason(normalized_goal, context, constrained.accepted)
+    reasoned = _reason(
+        normalized_goal,
+        context,
+        constrained.accepted,
+        backend=backend,
+        reasoner=reasoner,
+    )
     return assemble_plan(
         normalized_goal,
         reasoned,
@@ -120,15 +154,36 @@ def _reason(
     goal: str,
     context: HouseholdContext,
     candidates: Sequence[ActionCandidate],
+    *,
+    backend: str | None = None,
+    reasoner: Reasoner | None = None,
 ) -> ReasonedPlan:
-    """Select the reasoning backend.
+    """Run the selected reasoning backend over the accepted candidates."""
 
-    Phase 2 replaces this body with a Strands + Bedrock reasoner that consumes
-    `PLANNER_SYSTEM_PROMPT` and `build_planning_prompt(goal, context)` and
-    returns a `ReasonedPlan`. Nothing else in this module should change.
+    selected = reasoner if reasoner is not None else select_reasoner(backend)
+    logger.info(
+        "Reasoning with %s over %s accepted candidate(s)",
+        getattr(selected, "__name__", type(selected).__name__),
+        len(candidates),
+    )
+    return selected(goal, context, candidates)
+
+
+def select_reasoner(backend: str | None = None) -> Reasoner:
+    """Return the reasoner for ``backend`` (defaults to configured backend).
+
+    The Bedrock reasoner is imported lazily so mock mode never loads
+    Strands/boto3. Raises `ValueError` for an unsupported backend.
     """
 
-    return _mock_reasoner(goal, context, candidates)
+    name = normalize_backend(backend) if backend is not None else get_config().planner_backend
+    if name == MOCK_PLANNER_BACKEND:
+        return _mock_reasoner
+    if name == BEDROCK_PLANNER_BACKEND:
+        from haven.agents.bedrock_reasoner import BedrockReasoner
+
+        return BedrockReasoner()
+    raise ValueError(f"unsupported planner backend {name!r}")  # pragma: no cover
 
 
 def _mock_reasoner(
@@ -138,8 +193,8 @@ def _mock_reasoner(
 ) -> ReasonedPlan:
     """Deterministic stand-in for model reasoning.
 
-    Builds the prompt so the same inputs Phase 2 will send are exercised, but
-    does not send them anywhere.
+    Selects every accepted candidate in order. Builds the prompt so the same
+    inputs the Bedrock backend sends are exercised, but sends them nowhere.
     """
 
     _ = PLANNER_SYSTEM_PROMPT
@@ -150,14 +205,20 @@ def _mock_reasoner(
             summary="",
             steps=[],
             clarification_needed=True,
-            clarification_prompt=_clarification_prompt(goal, context),
+            clarification_prompt=clarification_prompt_for(goal, context),
         )
 
-    steps = [_candidate_to_step(candidate, index) for index, candidate in enumerate(candidates, 1)]
+    steps = [candidate_to_step(candidate, index) for index, candidate in enumerate(candidates, 1)]
     return ReasonedPlan(summary=_summarize(goal, steps), steps=steps)
 
 
-def _candidate_to_step(candidate: ActionCandidate, order: int) -> PlanStep:
+def candidate_to_step(candidate: ActionCandidate, order: int) -> PlanStep:
+    """Build a trusted `PlanStep` from an accepted candidate.
+
+    Every field comes from the candidate or from policy; a model decision
+    contributes only *which* candidates appear and in what order.
+    """
+
     return PlanStep(
         id=f"step-{order}",
         order=order,
@@ -177,7 +238,9 @@ def _summarize(goal: str, steps: Sequence[PlanStep]) -> str:
     return f"Proposed {len(steps)} step(s) for: {goal}"
 
 
-def _clarification_prompt(goal: str, context: HouseholdContext) -> str:
+def clarification_prompt_for(goal: str, context: HouseholdContext) -> str:
+    """Deterministic clarification question when no candidate survives."""
+
     if _is_movie_night_goal(goal):
         if not filter_available_options(
             context.media_options, available_minutes=context.available_minutes

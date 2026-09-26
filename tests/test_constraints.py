@@ -75,3 +75,64 @@ def test_apply_constraints_rejects_offline_device(movie_night_context: Household
     result = apply_constraints("goal", ctx, [candidate])
     assert result.accepted == []
     assert result.rejected[0].reason == "required device is unavailable"
+
+
+def _candidate(**overrides: object) -> ActionCandidate:
+    base = {"action": "a", "title": "t", "description": "d", "risk": ActionRisk.READ}
+    return ActionCandidate(**{**base, **overrides})
+
+
+def _only_reason(context: HouseholdContext, candidate: ActionCandidate) -> str | None:
+    result = apply_constraints("goal", context, [candidate])
+    if result.accepted:
+        return None
+    return result.rejected[0].reason
+
+
+def test_required_device_missing_is_rejected(movie_night_context: HouseholdContext) -> None:
+    reason = _only_reason(movie_night_context, _candidate(required_device_id="ghost"))
+    assert reason == "required device is not present in household context"
+
+
+def test_required_capability_missing_without_device_is_rejected(
+    movie_night_context: HouseholdContext,
+) -> None:
+    # No specific device: the generic capability check must still run.
+    reason = _only_reason(
+        movie_night_context, _candidate(required_capabilities=[DeviceCapability.THERMOSTAT])
+    )
+    assert reason == "required capability is not available"
+
+
+def test_required_room_missing_is_rejected(movie_night_context: HouseholdContext) -> None:
+    reason = _only_reason(movie_night_context, _candidate(room_id="garage"))
+    assert reason == "required room is not present in household context"
+
+
+def test_required_room_missing_with_device_is_rejected(
+    movie_night_context: HouseholdContext,
+) -> None:
+    # The device exists but its room is not part of the context. Previously the
+    # room check was unreachable once a specific device passed.
+    ctx = movie_night_context.model_copy(deep=True)
+    ctx.devices[0].room_id = "garage"
+    reason = _only_reason(ctx, _candidate(required_device_id="tv-1", room_id="garage"))
+    assert reason == "required room is not present in household context"
+
+
+def test_device_in_wrong_room_is_rejected(movie_night_context: HouseholdContext) -> None:
+    reason = _only_reason(
+        movie_night_context, _candidate(required_device_id="tv-1", room_id="bedroom")
+    )
+    assert reason == "required device is not in the required room"
+
+
+def test_valid_candidate_is_accepted(movie_night_context: HouseholdContext) -> None:
+    candidate = _candidate(
+        required_device_id="tv-1",
+        required_capabilities=[DeviceCapability.MEDIA_PLAYBACK],
+        room_id="living-room",
+        media_id="m-short",
+        duration_minutes=95,
+    )
+    assert _only_reason(movie_night_context, candidate) is None

@@ -23,21 +23,26 @@ dev = [
     "ruff>=0.6",
 ]
 
+# Two importable top-level packages:
+#   haven  (src/haven)  - application code
+#   aws    (aws/)       - AWS infrastructure: Bedrock config/client
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["haven*", "aws*"]
 
 [tool.setuptools.package-data]
 haven = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "-q"
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+# "." makes the root-level `aws` package first-party for import sorting.
+src = ["src", "."]
 
 [tool.ruff.lint]
 select = [

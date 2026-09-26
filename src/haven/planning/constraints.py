@@ -126,6 +126,12 @@ def _rejection_reason(
     devices_by_id: dict[str, DeviceContext],
     available_media_ids: set[str],
 ) -> str | None:
+    """Return why a candidate is rejected, or None when it is accepted.
+
+    Checks run in a fixed order: time, media, specific device, capability,
+    room. The first failing check decides the reason.
+    """
+
     if candidate.duration_minutes is not None and not fits_available_time(
         candidate.duration_minutes,
         context.available_minutes,
@@ -156,7 +162,6 @@ def _rejection_reason(
         if candidate.room_id is not None and device.room_id != candidate.room_id:
             return "required device is not in the required room"
 
-    return None
     for capability in candidate.required_capabilities:
         if not context_has_capability(context, capability):
             return "required capability is not available"

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
-from haven.agents.planner import create_plan
+from haven.agents.planner import candidate_to_step, create_plan
 from haven.agents.prompts import PLANNER_SYSTEM_PROMPT, build_planning_prompt
+from haven.config import HavenConfig
 from haven.models.context import HouseholdContext
 from haven.models.plan import ActionRisk, Plan, PlanStatus, PlanStep
+from haven.planning.models import ReasonedPlan
 from haven.planning.plan_service import create_household_plan
 
 
@@ -90,11 +97,118 @@ def test_prompt_builder_includes_goal_and_context(movie_night_context: Household
     assert "Do not execute" in PLANNER_SYSTEM_PROMPT or "not execute" in PLANNER_SYSTEM_PROMPT
 
 
-def test_no_aws_or_alexa_modules_are_imported() -> None:
-    import sys
+_FORBIDDEN_MODULES = ("boto3", "botocore", "strands", "ask_sdk_core")
 
-    import haven.agents.planner  # noqa: F401
-    import haven.planning.plan_service  # noqa: F401
 
-    forbidden = {"boto3", "botocore", "strands", "ask_sdk_core"}
-    assert not forbidden & set(sys.modules)
+def _run_isolated(code: str) -> subprocess.CompletedProcess[str]:
+    root = Path(__file__).resolve().parents[1]
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(root / "src"), str(root)])}
+    env.pop("HAVEN_PLANNER_BACKEND", None)
+    return subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, env=env, check=False
+    )
+
+
+def test_mock_planner_import_does_not_load_aws_modules() -> None:
+    # Runs in a fresh interpreter so other tests importing Strands cannot
+    # influence the result.
+    code = (
+        "import sys\n"
+        "import haven.agents.planner, haven.planning.plan_service\n"
+        f"hit = {set(_FORBIDDEN_MODULES)!r} & set(sys.modules)\n"
+        "print(sorted(hit))\n"
+        "sys.exit(1 if hit else 0)\n"
+    )
+    result = _run_isolated(code)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_mock_planning_runs_offline_without_aws_modules(
+    movie_night_context: HouseholdContext,
+) -> None:
+    code = (
+        "import sys, json\n"
+        "from haven.models.context import HouseholdContext\n"
+        "from haven.planning.plan_service import create_household_plan\n"
+        f"ctx = HouseholdContext.model_validate_json({movie_night_context.model_dump_json()!r})\n"
+        "plan = create_household_plan('Get movie night ready', ctx)\n"
+        f"hit = {set(_FORBIDDEN_MODULES)!r} & set(sys.modules)\n"
+        "print(len(plan.steps), sorted(hit))\n"
+        "sys.exit(1 if hit or not plan.steps else 0)\n"
+    )
+    result = _run_isolated(code)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_create_plan_accepts_explicit_mock_backend(movie_night_context: HouseholdContext) -> None:
+    plan = create_plan("Get movie night ready", movie_night_context, backend="mock")
+    assert len(plan.steps) == 3
+
+
+def test_create_plan_accepts_injected_reasoner(movie_night_context: HouseholdContext) -> None:
+    seen: dict[str, int] = {}
+
+    def reasoner(goal, context, candidates):  # type: ignore[no-untyped-def]
+        seen["count"] = len(candidates)
+        return ReasonedPlan(
+            summary="only the first",
+            steps=[candidate_to_step(candidates[0], 1)],
+        )
+
+    plan = create_plan("Get movie night ready", movie_night_context, reasoner=reasoner)
+    assert seen["count"] == 3
+    assert [s.action for s in plan.steps] == ["select_media"]
+    assert plan.summary == "only the first"
+
+
+def test_unknown_backend_raises(movie_night_context: HouseholdContext) -> None:
+    with pytest.raises(ValueError, match="unsupported planner backend"):
+        create_plan("Get movie night ready", movie_night_context, backend="quantum")
+
+
+def test_select_reasoner_by_backend() -> None:
+    from haven.agents.bedrock_reasoner import BedrockReasoner
+    from haven.agents.planner import _mock_reasoner, select_reasoner
+
+    assert select_reasoner("mock") is _mock_reasoner
+    assert isinstance(select_reasoner("bedrock"), BedrockReasoner)
+    with pytest.raises(ValueError):
+        select_reasoner("nope")
+
+
+def test_select_reasoner_defaults_to_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    from haven.agents.planner import _mock_reasoner, select_reasoner
+
+    monkeypatch.delenv("HAVEN_PLANNER_BACKEND", raising=False)
+    assert select_reasoner() is _mock_reasoner
+    monkeypatch.setenv("HAVEN_PLANNER_BACKEND", "bedrock")
+    assert type(select_reasoner()).__name__ == "BedrockReasoner"
+    monkeypatch.setenv("HAVEN_PLANNER_BACKEND", "other")
+    with pytest.raises(ValueError):
+        select_reasoner()
+
+
+def test_plan_service_uses_configured_backend(movie_night_context: HouseholdContext) -> None:
+    config = HavenConfig(planner_backend="mock")
+    plan = create_household_plan("Get movie night ready", movie_night_context, config=config)
+    assert plan.steps
+
+
+def test_candidate_prompt_lists_only_offered_candidates(
+    movie_night_context: HouseholdContext,
+) -> None:
+    from haven.agents.bedrock_reasoner import offer_candidates
+    from haven.agents.planner import generate_candidates
+
+    candidates = generate_candidates("Get movie night ready", movie_night_context)
+    offered = list(offer_candidates(candidates).values())
+    prompt = build_planning_prompt("Get movie night ready", movie_night_context, offered)
+
+    assert "candidate-1" in prompt and "candidate-3" in prompt
+    assert "ONLY among the offered candidate" in prompt
+    assert "Do not reintroduce" in prompt
+    assert "selected_candidate_ids" in prompt
+    # Minimal context: the front-door lock and people are not relevant to these candidates.
+    assert "lock-1" not in prompt
+    assert "Ari" not in prompt
+    assert "tv-1" in prompt and "Short Feature" in prompt
