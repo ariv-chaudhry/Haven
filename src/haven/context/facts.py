@@ -1,14 +1,17 @@
-# facts.py
-# Haven Context Facts
+"""Internal bookkeeping for facts gathered during context resolution.
 
-# Handles individual facts gathered by the Context Resolver: what was
-# learned, where it came from, how confident Haven is in it, and when
-# it stops being trustworthy
+Person A's shared planning contract (``haven.models.context``) does not
+define a durable "ContextFact" type: ``HouseholdContext`` is a directly
+constructible snapshot (people/rooms/devices/media already resolved), not
+a bag of named facts. See ``haven/models/context.py`` for the contract
+and ``haven/context/resolver.py`` for how it gets built.
 
-# This module builds on the shared ContextFact contract defined in
-# haven.models.context (owned by Person A). It does not redefine that
-# contract — it provides the helpers the resolver needs to create,
-# store, and query facts consistently while a goal is being resolved
+``GatheredFact`` here is therefore private to this package. It exists only
+to give ``resolve_context`` a consistent way to try several sources for a
+handful of scalar facts (available time, preferences, per-person presence
+overrides) before folding the result into the final ``HouseholdContext``.
+It never crosses the planning boundary.
+"""
 
 from __future__ import annotations
 
@@ -16,8 +19,19 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from haven.models.context import ContextFact
 from haven.context.sources import ContextSourceType
+
+
+@dataclass(frozen=True)
+class GatheredFact:
+    """A single fact resolved from one approved context source."""
+
+    fact_name: str
+    value: Any
+    source: ContextSourceType
+    confidence: float = 1.0
+    retrieved_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime | None = None
 
 
 def make_fact(
@@ -26,8 +40,8 @@ def make_fact(
     source: ContextSourceType,
     confidence: float = 1.0,
     expires_at: datetime | None = None,
-) -> ContextFact:
-    # Builds a ContextFact with consistent defaults
+) -> GatheredFact:
+    """Build a `GatheredFact` with consistent validation and defaults."""
 
     if not fact_name.strip():
         raise ValueError("fact_name cannot be empty.")
@@ -35,10 +49,10 @@ def make_fact(
     if not (0.0 <= confidence <= 1.0):
         raise ValueError("confidence must be between 0.0 and 1.0.")
 
-    return ContextFact(
+    return GatheredFact(
         fact_name=fact_name,
         value=value,
-        source=source.value,
+        source=source,
         confidence=confidence,
         retrieved_at=datetime.now(timezone.utc),
         expires_at=expires_at,
@@ -47,46 +61,47 @@ def make_fact(
 
 @dataclass
 class FactStore:
-    # Holds every fact gathered so far during a single context
-    # resolution pass. Scoped to one resolve_context() call — it is
-    # not a long-lived cache. Durable facts belong in memory/service.py
-    # once that layer exists
+    """Facts gathered so far during a single `resolve_context` call.
 
-    facts: dict[str, ContextFact] = field(default_factory=dict)
+    Scoped to one resolution pass — it is not a long-lived cache. Durable
+    facts belong in `haven.memory.service.MemoryService`.
+    """
 
-    def add(self, fact: ContextFact) -> None:
-        # Stores or replaces a fact by name
+    facts: dict[str, GatheredFact] = field(default_factory=dict)
+
+    def add(self, fact: GatheredFact) -> None:
+        """Store or replace a fact by name."""
 
         self.facts[fact.fact_name] = fact
 
-    def get(self, fact_name: str) -> ContextFact | None:
-        # Returns a fact by name, if it has been gathered
+    def get(self, fact_name: str) -> GatheredFact | None:
+        """Return a fact by name, if it has been gathered."""
 
         return self.facts.get(fact_name)
 
     def has(self, fact_name: str) -> bool:
-        # Returns whether a fact has been gathered
+        """Return whether a fact has been gathered."""
 
         return fact_name in self.facts
 
     def missing(self, required_fact_names: list[str]) -> list[str]:
-        # Returns which of the required facts have not been gathered
+        """Return which of the required facts have not been gathered."""
 
         return [name for name in required_fact_names if name not in self.facts]
 
     def values(self) -> dict[str, Any]:
-        # Returns a plain dict of fact_name -> value, useful for
-        # assembling a HouseholdContext
+        """Return a plain dict of fact_name -> value."""
 
         return {name: fact.value for name, fact in self.facts.items()}
 
-    def as_list(self) -> list[ContextFact]:
-        # Returns every gathered fact as a list
+    def as_list(self) -> list[GatheredFact]:
+        """Return every gathered fact as a list."""
 
         return list(self.facts.values())
 
 
 __all__ = [
+    "GatheredFact",
     "make_fact",
     "FactStore",
 ]

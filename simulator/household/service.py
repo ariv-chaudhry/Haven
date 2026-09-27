@@ -2,12 +2,19 @@
 # Haven Household Simulator Service
 
 # Exposes household state (people, rooms, devices) without any real
-# hardware, backed by the JSON demo data in simulator/household/data/.
-# This lets both the Context Resolver and the executor be developed
-# and demoed before any real device integration exists
+# hardware, backed by the JSON demo data in simulator/household/data/
+# and simulator/security/data/devices.json. This lets the Context
+# Resolver, executor, and verifier all be developed and demoed before
+# any real device integration exists.
+
+# Phase 2 change: device records are now loaded into memory once (like
+# people and rooms already were) instead of being re-read from disk on
+# every call, and can be mutated via set_device_state(). This is what
+# lets the executor actually turn a "dim the lights" step into an
+# observable state change the verifier can check afterwards.
 
 # The simulator intentionally mirrors the shape of a real integration
-# so that swapping it out later does not require changing callers
+# so that swapping it out later does not require changing callers.
 
 from __future__ import annotations
 
@@ -15,18 +22,30 @@ import json
 from pathlib import Path
 from typing import Any
 
+from haven.models.device import Device, DeviceType
+from haven.models.household import Household
+from haven.models.person import Person, PresenceStatus
+from haven.models.room import Room
+
 DEFAULT_DATA_DIR = Path(__file__).parent / "data"
+DEFAULT_DEVICES_PATH = Path(__file__).parent.parent / "security" / "data" / "devices.json"
 
 
 class HouseholdSimulatorService:
     # In-memory household simulator, loaded from local JSON fixtures
 
-    def __init__(self, data_dir: Path | str = DEFAULT_DATA_DIR) -> None:
+    def __init__(
+        self,
+        data_dir: Path | str = DEFAULT_DATA_DIR,
+        devices_path: Path | str = DEFAULT_DEVICES_PATH,
+    ) -> None:
         self._data_dir = Path(data_dir)
+        self._devices_path = Path(devices_path)
 
         self._household: dict[str, Any] = {}
         self._people: list[dict[str, Any]] = []
         self._rooms: list[dict[str, Any]] = []
+        self._devices: list[dict[str, Any]] = []
 
         self.reload()
 
@@ -34,13 +53,13 @@ class HouseholdSimulatorService:
         # Reloads all simulator state from disk, discarding any
         # in-memory changes made during the current run
 
-        self._household = self._load_json("household.json")
-        self._people = self._load_json("people.json")
-        self._rooms = self._load_json("rooms.json")
+        self._household = self._load_json(self._data_dir / "household.json")
+        self._people = self._load_json(self._data_dir / "people.json")
+        self._rooms = self._load_json(self._data_dir / "rooms.json")
+        self._devices = self._load_json(self._devices_path)
 
-    def _load_json(self, filename: str) -> Any:
-        path = self._data_dir / filename
-
+    @staticmethod
+    def _load_json(path: Path) -> Any:
         if not path.exists():
             raise FileNotFoundError(f"Simulator data file not found: {path}")
 
@@ -126,28 +145,98 @@ class HouseholdSimulatorService:
         raise KeyError(f"Unknown room_id: {room_id}")
 
     # -- Devices -----------------------------------------------------------
-    # Device state is served by the security simulator's data file, but
-    # exposed here too since the Context Resolver only knows about one
-    # "household" surface. This keeps the resolver's source interface
-    # simple during early phases.
+
+    def get_devices(self) -> list[dict[str, Any]]:
+        # Returns every known device
+
+        return [dict(device) for device in self._devices]
 
     def get_device_state(self, device_id: str) -> dict[str, Any] | None:
-        # Returns a single device's state by id, if present, by reading
-        # directly from the security simulator's shared fixture
+        # Returns a single device's record by id, if present
 
-        devices_path = self._data_dir.parent.parent / "security" / "data" / "devices.json"
-
-        if not devices_path.exists():
-            return None
-
-        with devices_path.open("r", encoding="utf-8") as handle:
-            devices = json.load(handle)
-
-        for device in devices:
+        for device in self._devices:
             if device.get("device_id") == device_id:
                 return dict(device)
 
         return None
+
+    def set_device_state(
+        self,
+        device_id: str,
+        *,
+        state: dict[str, Any] | None = None,
+        online: bool | None = None,
+    ) -> dict[str, Any]:
+        # Updates a device's state for the remainder of this run.
+        #
+        # `state` is merged into the device's existing state dict (only
+        # the given keys change); `online` replaces the device's
+        # reachability flag when provided. Returns the updated device
+        # record.
+
+        for device in self._devices:
+            if device.get("device_id") != device_id:
+                continue
+
+            if state:
+                device.setdefault("state", {}).update(state)
+
+            if online is not None:
+                device["online"] = online
+
+            return dict(device)
+
+        raise KeyError(f"Unknown device_id: {device_id}")
+
+    # -- Domain snapshot -----------------------------------------------------
+
+    def get_snapshot(self) -> Household:
+        # Builds a fully populated `Household` domain object from the
+        # simulator's current in-memory state. This is what the Context
+        # Resolver maps into the planning-facing HouseholdContext.
+
+        people = [
+            Person(
+                person_id=p["person_id"],
+                name=p["name"],
+                presence=PresenceStatus(p.get("presence", "unknown")),
+                preferences=dict(p.get("preferences", {})),
+            )
+            for p in self._people
+        ]
+
+        rooms = [
+            Room(
+                room_id=r["room_id"],
+                name=r["name"],
+                occupied=bool(r.get("occupied", False)),
+                current_activity=r.get("current_activity"),
+                device_ids=list(r.get("device_ids", [])),
+            )
+            for r in self._rooms
+        ]
+
+        devices = [
+            Device(
+                device_id=d["device_id"],
+                name=d["name"],
+                device_type=DeviceType(d.get("device_type", "other")),
+                room_id=d.get("room_id"),
+                online=bool(d.get("online", True)),
+                state=dict(d.get("state", {})),
+            )
+            for d in self._devices
+        ]
+
+        return Household(
+            household_id=self._household["household_id"],
+            name=self._household["name"],
+            timezone=self._household.get("timezone", "UTC"),
+            people=people,
+            rooms=rooms,
+            devices=devices,
+            preferences=dict(self._household.get("preferences", {})),
+        )
 
 
 __all__ = [
