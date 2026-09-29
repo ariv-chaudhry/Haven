@@ -1,0 +1,24 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "HavenCreateAndDescribeTables",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:CreateTable",
+                "dynamodb:DescribeTable"
+            ],
+            "Resource": [
+                "arn:aws:dynamodb:us-west-2:*:table/HavenPreferences",
+                "arn:aws:dynamodb:us-west-2:*:table/HavenActivities",
+                "arn:aws:dynamodb:us-west-2:*:table/HavenPlans"
+            ]
+        },
+        {
+            "Sid": "HavenListTables",
+            "Effect": "Allow",
+            "Action": "dynamodb:ListTables",
+            "Resource": "*"
+        }
+    ]
+}

@@ -3,6 +3,7 @@
 Local/in-memory in Phase 2. Storage implementations are swappable via the
 `PreferenceStore` and `ActivityStore` protocols.
 """
+from haven.memory.factory import create_memory_service
 
 from haven.memory.activity import (
     ActivityRecord,

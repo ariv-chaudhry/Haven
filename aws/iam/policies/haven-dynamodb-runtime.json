@@ -1,0 +1,22 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "HavenDynamoDBRuntime",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:Query",
+                "dynamodb:DescribeTable"
+            ],
+            "Resource": [
+                "arn:aws:dynamodb:us-west-2:*:table/HavenPreferences",
+                "arn:aws:dynamodb:us-west-2:*:table/HavenActivities",
+                "arn:aws:dynamodb:us-west-2:*:table/HavenPlans"
+            ]
+        }
+    ]
+}
