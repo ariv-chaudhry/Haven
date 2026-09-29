@@ -41,6 +41,22 @@ class MediaSession(BaseModel):
     status: MediaSessionStatus
 
 
+class MediaCatalogEntry(BaseModel):
+    """A catalog title with the extra detail (genres) `MediaItem` doesn't
+    carry, for callers that need to rank or filter by genre — currently
+    `haven.mcp.tools.recommendations`. `MediaItem` (the planning contract)
+    intentionally stays minimal; this is additive, not a replacement.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    duration_minutes: int
+    genres: list[str] = Field(default_factory=list)
+    is_available: bool = True
+
+
 class MediaBackend(Protocol):
     """The subset of `MediaSimulatorService` this integration depends on.
 
@@ -81,6 +97,25 @@ class MediaService:
                 id=item["media_id"],
                 title=item["title"],
                 duration_minutes=item["duration_minutes"],
+                is_available=True,
+            )
+            for item in self._backend.list_media()
+        ]
+
+    def list_catalog_entries(self) -> list[MediaCatalogEntry]:
+        """Return the catalog with genres, for genre-aware recommendations.
+
+        `resolve_context`/planning should keep using `list_media_items`
+        (the stable planning contract); this is for callers that need the
+        extra detail.
+        """
+
+        return [
+            MediaCatalogEntry(
+                id=item["media_id"],
+                title=item["title"],
+                duration_minutes=item["duration_minutes"],
+                genres=list(item.get("genres", [])),
                 is_available=True,
             )
             for item in self._backend.list_media()
@@ -150,6 +185,7 @@ def _to_session(raw: dict) -> MediaSession:
 __all__ = [
     "MediaSessionStatus",
     "MediaSession",
+    "MediaCatalogEntry",
     "MediaBackend",
     "MediaService",
 ]

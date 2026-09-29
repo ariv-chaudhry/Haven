@@ -141,7 +141,7 @@ def execute_plan(
     )
 
     if memory is not None and status is ExecutionStatus.COMPLETED and household_id is not None:
-        _record_completion(memory, household_id, plan)
+        _record_completion(memory, household_id, plan, step_results)
 
     return ExecutionResult(
         plan_id=plan.id,
@@ -153,16 +153,44 @@ def execute_plan(
     )
 
 
-def _record_completion(memory: ActivityRecorder, household_id: str, plan: Plan) -> None:
+def _record_completion(
+    memory: ActivityRecorder,
+    household_id: str,
+    plan: Plan,
+    step_results: list[StepExecutionResult],
+) -> None:
     if not _is_movie_night_goal(plan.goal):
         return
+
+    details: dict[str, str | int | float | bool] = {
+        "plan_id": plan.id,
+        "step_count": len(plan.steps),
+    }
+
+    selected = next(
+        (
+            r
+            for r in step_results
+            if r.action == "select_media" and r.status is StepExecutionStatus.SUCCEEDED
+        ),
+        None,
+    )
+    if selected is not None:
+        # Recorded so a future recommendation (haven.mcp.tools.recommendations)
+        # can avoid re-suggesting whatever was just watched.
+        media_id = selected.effect.get("media_id")
+        title = selected.effect.get("title")
+        if isinstance(media_id, str):
+            details["media_id"] = media_id
+        if isinstance(title, str):
+            details["title"] = title
 
     try:
         memory.record_activity(
             household_id,
             ActivityType.MOVIE_NIGHT_PREPARED,
             f"Movie night prepared: {plan.summary}",
-            details={"plan_id": plan.id, "step_count": len(plan.steps)},
+            details=details,
         )
     except Exception:  # noqa: BLE001 - memory is best-effort here
         logger.exception("Failed to record movie night activity for plan %s.", plan.id)

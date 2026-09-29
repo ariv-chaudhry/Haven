@@ -32,6 +32,52 @@ Copy the template below into a new section, dated, with your initials.
 
 ## Entries
 
+### [Phase 3] — mcp SDK usage not verifiable offline (B)
+
+**Tool / API / SDK:** `mcp` (the official MCP Python SDK), specifically
+`mcp.server.fastmcp.FastMCP`
+
+**What we were trying to do:** Build `haven/mcp/server.py` against the
+documented FastMCP lifespan pattern: a `@dataclass AppContext`, an
+`@asynccontextmanager async def app_lifespan(server) -> AsyncIterator[AppContext]`
+passed to `FastMCP(name, lifespan=...)`, tools reading shared state via
+`ctx.request_context.lifespan_context`, and `server.run(transport="streamable-http")`
+for the Streamable HTTP transport Alexa+ requires.
+
+**What happened:** This dev environment has no network access, so `mcp`
+couldn't be `pip install`-ed to test against the real package. Everything
+in `haven/mcp/` was built and verified against a small local stand-in
+(matching just this usage) instead: `FastMCP(name, instructions=,
+lifespan=, host=, port=)`, `@mcp.tool()`, `Context.request_context.lifespan_context`,
+`server.run(transport=)`. All 6 tools were registered and called through
+that stand-in — including the confirmation-gating path on a synthetic
+high-impact plan — and behaved correctly.
+
+**What worked well:** Keeping each tool's actual logic (the functions
+`haven.mcp.tools.*` export alongside `register()`) as plain,
+dependency-injected functions with no import of `mcp` at all meant the
+business logic itself could be fully tested regardless. Only the
+`register()` wrapper and the `Context`/`FastMCP` imports depend on the
+real package.
+
+**What didn't:** The exact FastMCP constructor kwargs (`host=`, `port=`
+passed directly vs. set via `server.settings`) and the precise
+`transport=` string for Streamable HTTP could plausibly differ by
+installed version. This wasn't independently confirmed against a real
+`mcp` install.
+
+**Workaround (if any):** None needed yet — but this is the first thing
+to check the moment `pip install -e .` succeeds with network access:
+`python scripts/run_server.py` should start cleanly, and
+`npx @modelcontextprotocol/inspector` (or curling the Streamable HTTP
+endpoint) should list all 6 tools. If the constructor signature has
+moved, it's isolated to `create_server()` in `haven/mcp/server.py` —
+nothing else touches FastMCP directly.
+
+**Would we use it again?** Yes, but flag this as the first thing to
+smoke-test locally before wiring up the Alexa+ web simulator (Phase 4) —
+don't assume this is 100% confirmed to work in the real environment yet.
+
 ### [Phase 2] — PlanStep has no structured media_id (B)
 
 **Tool / API / SDK:** Internal contract — `haven.models.plan.PlanStep`
