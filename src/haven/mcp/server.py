@@ -9,11 +9,13 @@ dependency-injected functions that don't import the `mcp` package at all
 (see the module docstrings there) — this file's `register(mcp)` calls are
 the only place those functions get wrapped as `@mcp.tool()`.
 
-Phase 3 runs Haven's own simulators and in-memory stores directly, the
-same way `scripts/run_movie_night.py` does; there is no AWS dependency
-here yet. Person A's DynamoDB-backed `MemoryService` (Phase 3) is a
-drop-in swap for the `MemoryService()` constructed below — nothing here
-needs to change when that lands, only `app_lifespan`'s construction.
+Phase 3 ran Haven's own simulators and in-memory stores directly, the
+same way `scripts/run_movie_night.py` does. Phase 4 adds AgentCore
+deployment on Person A's side; on this side, the only change is that
+`MemoryService` construction now goes through
+`haven.memory.factory.create_memory_service`, which honors
+`HAVEN_PERSISTENCE_BACKEND` (`memory` locally, `dynamodb` in production)
+instead of always constructing an in-memory store directly.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from haven.config import HavenConfig, get_config
 from haven.execution.results import ExecutionResult
 from haven.integrations.calendar import CalendarService, demo_calendar
 from haven.integrations.media import MediaService
+from haven.memory.factory import create_memory_service
 from haven.memory.service import MemoryService
 from haven.models.plan import Plan
 from haven.verification.verifier import VerificationResult
@@ -130,10 +133,14 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     household_id = household_service.get_snapshot().household_id
 
     media_service = MediaService(MediaSimulatorService())
-    memory_service = MemoryService(default_household_id=household_id)
+    memory_service = create_memory_service(config=config, default_household_id=household_id)
     calendar_service = demo_calendar()
 
-    logger.info("Haven MCP server starting for household_id=%s", household_id)
+    logger.info(
+        "Haven MCP server starting for household_id=%s (persistence_backend=%s)",
+        household_id,
+        config.persistence_backend,
+    )
 
     try:
         yield AppContext(
